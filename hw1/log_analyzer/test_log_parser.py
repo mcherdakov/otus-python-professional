@@ -1,5 +1,5 @@
-import unittest
 import re
+import unittest
 from datetime import datetime
 
 from log_parser import File, log_format_regexp, parse_log_line

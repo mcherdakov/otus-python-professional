@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-import os
-import logging
-import json
 import argparse
-from string import Template
-from dataclasses import dataclass, asdict, field
-from typing import Generator
+import json
+import logging
+import os
+from dataclasses import asdict, dataclass, field
 from statistics import median
+from string import Template
+from typing import Generator
 
 from config import Config, parse_config
-from log_parser import get_next_log_file, log_readlines, RequestLog, File
+from log_parser import File, RequestLog, get_next_log_file, read_log_lines
 
 
 @dataclass
@@ -121,7 +121,7 @@ def main() -> None:
             return
 
         log_file_path = os.path.join(config.LOG_DIR, next_log_file.name)
-        request_logs = log_readlines(log_file_path)
+        request_logs = read_log_lines(log_file_path)
 
         request_stats, fault_rate = process_request_logs(
             request_logs=request_logs,

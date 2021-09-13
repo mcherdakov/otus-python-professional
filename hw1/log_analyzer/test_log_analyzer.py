@@ -1,7 +1,7 @@
 import unittest
 from typing import Generator
 
-from log_analyzer import process_request_logs, RequestStat
+from log_analyzer import RequestStat, process_request_logs
 from log_parser import Request, RequestLog
 
 

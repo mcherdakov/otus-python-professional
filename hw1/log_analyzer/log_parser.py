@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import re
 import gzip
 import os
-
-from datetime import datetime
-from typing import Generator, Optional, Callable
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Callable, Generator, Optional
 
 from config import Config
-
 
 file_date_regexp = re.compile(r'\d+')
 log_format_regexp = re.compile(
@@ -67,6 +65,8 @@ def get_next_log_file(config: Config) -> Optional[File]:
     if last_log_file is None:
         return None
 
+    os.makedirs(config.REPORT_DIR, exist_ok=True)
+
     # If report for this date already exists, skip this log file
     for report_file in _get_files_in_path(config.REPORT_DIR):
         if last_log_file.date == report_file.date:
@@ -95,7 +95,7 @@ def parse_log_line(log_line: str) -> RequestLog:
     )
 
 
-def log_readlines(file_name: str) -> Generator[RequestLog, None, None]:
+def read_log_lines(file_name: str) -> Generator[RequestLog, None, None]:
     open_func: Callable = open
     if file_name.endswith('.gz'):
         open_func = gzip.open
