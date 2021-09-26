@@ -2,8 +2,8 @@
 
 To run server, use following commands(python >=3.9):
 ```bash
-    chmod +x log_analyzer.py 
-    ./log_analyzer.py
+    chmod +x api.py 
+    ./api.py
 ```
 
 To run tests and style check, you need to setup pipenv and install dev dependencies:
