@@ -108,7 +108,7 @@ class OnlineScore(Method):
 
 
 class ClientsInterests(Method):
-    def process(self, store, context) -> dict[str, float]:
+    def process(self, store, context):
         args = self.method_request.arguments
 
         request = ClientsInterestsRequest(args)
