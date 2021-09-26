@@ -14,3 +14,11 @@ ERRORS = {
     INVALID_REQUEST: 'Invalid Request',
     INTERNAL_ERROR: 'Internal Server Error',
 }
+UNKNOWN = 0
+MALE = 1
+FEMALE = 2
+GENDERS = {
+    UNKNOWN: 'unknown',
+    MALE: 'male',
+    FEMALE: 'female',
+}

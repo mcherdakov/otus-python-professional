@@ -1,14 +1,6 @@
+from consts import GENDERS
 from datetime import datetime
 from weakref import WeakKeyDictionary
-
-UNKNOWN = 0
-MALE = 1
-FEMALE = 2
-GENDERS = {
-    UNKNOWN: 'unknown',
-    MALE: 'male',
-    FEMALE: 'female',
-}
 
 
 class Field:
@@ -127,7 +119,7 @@ class GenderField(Field):
         if value is None:
             return
 
-        possible_values = [0, 1, 2]
+        possible_values = list(GENDERS.keys())
         if value not in possible_values:
             raise AttributeError(
                 f'{self.name}: must be in {possible_values}',
