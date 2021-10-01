@@ -10,7 +10,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from optparse import OptionParser
 
 import consts
-from methods import AVAILABLE_METHODS, MethodRequest
+from fields import ValidationError
+from methods import MethodNotFound, MethodRequest, process_method_request
 
 
 def check_auth(request: MethodRequest) -> bool:
@@ -31,23 +32,21 @@ def check_auth(request: MethodRequest) -> bool:
 
 
 def method_handler(request, ctx, store):
+    method_request = MethodRequest(request['body'])
     try:
-        method_request = MethodRequest(request)
-    except AttributeError as e:
+        method_request.validate()
+    except ValidationError as e:
         return str(e), consts.INVALID_REQUEST
-
-    if method_request.method not in AVAILABLE_METHODS:
-        return None, consts.INVALID_REQUEST
 
     if not check_auth(method_request):
         return None, consts.FORBIDDEN
 
-    method = AVAILABLE_METHODS[method_request.method](method_request)
-
     try:
-        return method.process(store, ctx), consts.OK
-    except AttributeError as e:
+        return process_method_request(method_request, ctx, store), consts.OK
+    except ValidationError as e:
         return str(e), consts.INVALID_REQUEST
+    except MethodNotFound:
+        return None, consts.INVALID_REQUEST
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
@@ -67,7 +66,6 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
             data_string = self.rfile.read(int(self.headers['Content-Length']))
             request = json.loads(data_string)
         except Exception as e:
-            print(e)
             code = consts.BAD_REQUEST
 
         if request:
