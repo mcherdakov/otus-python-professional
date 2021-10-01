@@ -66,6 +66,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
             data_string = self.rfile.read(int(self.headers['Content-Length']))
             request = json.loads(data_string)
         except Exception as e:
+            print(e)
             code = consts.BAD_REQUEST
 
         if request:
