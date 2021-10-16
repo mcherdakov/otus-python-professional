@@ -1,0 +1,22 @@
+version: '3'
+services:
+  scoring-test:
+    build: 
+      context: .
+      dockerfile: Dockerfile.test
+    command: bash -c "pytest app/tests/integration/ --disable-pytest-warnings"
+    depends_on: 
+      - redis
+
+  redis:
+    image: docker.io/bitnami/redis:latest
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - 'redis-test-data:/bitnami/redis/data'
+    logging:
+      driver: none
+
+volumes:
+  redis-test-data:
+    driver: local
