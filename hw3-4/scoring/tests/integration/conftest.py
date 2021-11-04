@@ -28,6 +28,6 @@ class UnavailableStore:
 
 @pytest.fixture
 def unavailable_store(mocker: MockerFixture):
-    store = RedisStore('redis', 6379)
+    store = RedisStore('redis', 6379, retry_initial_interval=0)
     mocker.patch.object(store, 'client', UnavailableStore())
     return store

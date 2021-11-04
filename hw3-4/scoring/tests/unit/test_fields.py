@@ -29,37 +29,24 @@ class TestField:
         assert desc_class.f == 'hello'
 
     def test_validate_null_nullable(self):
-        desc_class = _wrap_descriptor(
-            field_name='f',
-            descriptor_class=fields.Field,
-            descriptor_args={'nullable': True},
-        )
-        desc_class.f = None
-
-        assert desc_class.f is None
+        desc = fields.Field(nullable=True)
+        desc.name = 'some_field'
+        desc.validate(None)
 
     def test_validate_null_non_nullable(self):
-        desc_class = _wrap_descriptor(
-            field_name='f',
-            descriptor_class=fields.Field,
-            descriptor_args={'nullable': False},
-        )
+        desc = fields.Field(nullable=False)
+        desc.name = 'some_field'
 
         with pytest.raises(fields.ValidationError):
-            desc_class.f = None
+            desc.validate(None)
 
     def test_validate_type(self):
-        class Desc(fields.Field):
-            valid_types = [str]
-
-        desc_class = _wrap_descriptor(
-            field_name='f',
-            descriptor_class=Desc,
-            descriptor_args={},
-        )
+        desc = fields.Field()
+        desc.valid_types = [str]
+        desc.name = 'some_field'
 
         with pytest.raises(fields.ValidationError):
-            desc_class.f = 123
+            desc.validate(123)
 
 
 VALIDATION_TEST_CASES: list[dict] = [
