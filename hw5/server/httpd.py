@@ -133,9 +133,10 @@ class HTTPServer:
                 # probably not http
                 return
 
+            request = Request.from_raw(raw_request)
+            response = self._handle_request(request)
+
             with connection.makefile('wb') as write_fd:
-                request = Request.from_raw(raw_request)
-                response = self._handle_request(request)
                 write_fd.write(response.to_raw())
 
     def _serve_forever(self, server: socket.socket):
