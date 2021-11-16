@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from consts import GENDERS
+from app.consts import GENDERS
 
 
 class ValidationError(Exception):
@@ -97,6 +97,17 @@ class DateField(CharField):
             datetime.strptime(value, self.FORMAT)
         except ValueError as e:
             raise ValidationError(f'{self.name}: {str(e)}')
+
+    def __set__(self, instance, value):
+        self.validate(value)
+        if value is None:
+            setattr(instance, self._name, None)
+        else:
+            setattr(
+                instance,
+                self._name,
+                datetime.strptime(value, self.FORMAT),
+            )
 
 
 class BirthDayField(DateField):

@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
 import datetime
 import hashlib
 import json
 import logging
+import os
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from optparse import OptionParser
 
-import consts
-from fields import ValidationError
-from methods import MethodNotFound, MethodRequest, process_method_request
+from app import consts
+from app.fields import ValidationError
+from app.methods import MethodNotFound, MethodRequest, process_method_request
+from app.store import RedisStore
 
 
 def check_auth(request: MethodRequest) -> bool:
@@ -53,7 +54,11 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         'method': method_handler
     }
-    store = None
+    store = RedisStore(
+        host=os.environ.get('REDIS_HOST', 'redis'),
+        port=int(os.environ.get('REDIS_PORT', '6379')),
+        timeout=10,
+    )
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
@@ -118,7 +123,7 @@ if __name__ == '__main__':
         format='[%(asctime)s] %(levelname).1s %(message)s',
         datefmt='%Y.%m.%d %H:%M:%S'
     )
-    server = HTTPServer(('localhost', opts.port), MainHTTPHandler)
+    server = HTTPServer(('0.0.0.0', opts.port), MainHTTPHandler)
     logging.info('Starting server at %s' % opts.port)
     try:
         server.serve_forever()

@@ -1,8 +1,8 @@
-import consts
-from fields import (ArgumentsField, BirthDayField, CharField, ClientIDsField,
-                    DateField, EmailField, Field, GenderField, PhoneField,
-                    ValidationError)
-from scoring import get_interests, get_score
+from app import consts
+from app.fields import (ArgumentsField, BirthDayField, CharField,
+                        ClientIDsField, DateField, EmailField, Field,
+                        GenderField, PhoneField, ValidationError)
+from app.scoring import get_interests, get_score
 
 
 class MethodNotFound(Exception):
