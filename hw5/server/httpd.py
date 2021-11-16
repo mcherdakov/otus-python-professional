@@ -1,4 +1,5 @@
 import argparse
+import mimetypes
 import os
 import socket
 import time
@@ -6,23 +7,17 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from urllib.parse import unquote
 
+REQUEST_SIZE_LIMIT = 1024 * 1024
+
 STATUSES_READABLE = {
     200: "OK",
     403: "FORBIDDEN",
     404: "NOT FOUND",
     405: "METHOD NOT ALLOWED",
+    413: "PAYLOAD TOO LARGE",
 }
 
-CONTENT_TYPES_MAP = {
-    'html': 'text/html',
-    'css': 'text/css',
-    'js': 'text/javascript',
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'png': 'image/png',
-    'gif': 'image/gif',
-    'swf': 'application/x-shockwave-flash',
-}
+mimetypes.init()
 
 
 @dataclass
@@ -48,7 +43,8 @@ class Request:
 class Response:
     status: int
     data: bytes | None = None
-    content_type: str | None = None
+    data_size: int = 0
+    path: str | None = None
     method: str | None = None
 
     def to_raw(self):
@@ -64,14 +60,14 @@ class Response:
         ]
 
         if self.data is not None:
-            header_type = CONTENT_TYPES_MAP.get(
-                self.content_type,
-                'text/plain',
-            )
+            header_type, _ = mimetypes.guess_type(self.path)
+            if header_type is None:
+                header_type = 'text/plain'
+
             headers.append(
                 f'Content-Type: {header_type}',
             )
-            headers.append(f'Content-Length: {len(self.data)}')
+            headers.append(f'Content-Length: {self.data_size}')
 
         headers_raw = '\r\n'.join(headers)
 
@@ -106,28 +102,56 @@ class HTTPServer:
             relative_path
         )
 
-        if '..' in path.split('/'):
+        root_abspath = os.path.abspath(self.content_root)
+        abspath = os.path.abspath(path)
+        if os.path.commonprefix([abspath, root_abspath]) != root_abspath:
             return Response(status=403)
 
         try:
-            with open(path, 'rb') as f:
-                data = f.read()
+            if request.method == 'HEAD':
+                data = b''
+                data_size = os.path.getsize(path)
+            else:
+                with open(path, 'rb') as f:
+                    data = f.read()
+                    data_size = len(data)
         except (FileNotFoundError, NotADirectoryError):
             return Response(status=404)
 
         return Response(
             status=200,
             data=data,
-            content_type=path.split('.')[-1].lower(),
+            data_size=data_size,
+            path=path,
             method=request.method,
         )
 
+    @staticmethod
+    def _write_response(connection: socket.socket, response: Response) -> None:
+        with connection.makefile('wb') as write_fd:
+            write_fd.write(response.to_raw())
+
     def _handle_connection(self, connection: socket.socket):
         with connection:
-            with connection.makefile('rw') as read_fd:
+            with connection.makefile('r', newline='\r\n') as read_fd:
                 raw_request = []
-                while request_line := read_fd.readline().strip():
-                    raw_request.append(request_line)
+                request_size = 0
+                while request_line := read_fd.readline(REQUEST_SIZE_LIMIT + 1):
+                    request_size += len(request_line)
+
+                    if request_size > REQUEST_SIZE_LIMIT:
+                        break
+
+                    if request_line == '\r\n':
+                        # possible only if it is two consecutive CRLF's
+                        break
+
+                    striped_line = request_line.rstrip('\r\n')
+                    if striped_line:
+                        raw_request.append(request_line.strip())
+
+            if request_size > REQUEST_SIZE_LIMIT:
+                self._write_response(connection, Response(status=413))
 
             if not raw_request:
                 # probably not http
@@ -136,8 +160,7 @@ class HTTPServer:
             request = Request.from_raw(raw_request)
             response = self._handle_request(request)
 
-            with connection.makefile('wb') as write_fd:
-                write_fd.write(response.to_raw())
+            self._write_response(connection, response)
 
     def _serve_forever(self, server: socket.socket):
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
