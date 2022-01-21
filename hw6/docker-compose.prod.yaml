@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile.prod
     ports:
       - "8000:8000"
-    command: bash -c "python manage.py migrate && uwsgi --http :8000 --module hasker.wsgi"
+    command: bash -c "python manage.py migrate && python manage.py collectstatic --noinput && uwsgi --http :8000 --static-map /static=static --static-map /media=media --module hasker.wsgi"
     environment:
       - ENV=PROD
       - SECRET_KEY=${SECRET_KEY}
