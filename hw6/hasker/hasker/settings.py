@@ -17,9 +17,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ['SECRET_KEY']
 
-DEBUG = True
+ENV = os.environ.get('ENV')
 
-ALLOWED_HOSTS: list[str] = []
+DEBUG = (ENV != 'PROD')
+
+
+ALLOWED_HOSTS: list[str] = [
+    '84.201.157.94',
+    'hasker.bromigo.ru',
+]
 
 
 # Application definition
@@ -82,7 +88,7 @@ DATABASES = {
     }
 }
 
-if os.environ.get('ENV') == 'PROD':
+if ENV == 'PROD':
     DATABASES['default']['OPTIONS'] = {
         'sslmode': 'verify-full',
         'sslrootcert': os.environ.get('POSTGRES_SSL_ROOT_CERT'),
