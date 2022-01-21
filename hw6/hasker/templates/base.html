@@ -1,0 +1,73 @@
+{% load static %}
+<html>
+<head>
+	<title>{% block title %}Hasker{% endblock %}</title>
+	<link href="{% static 'bootstrap/css/bootstrap.min.css' %}" rel="stylesheet">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+</head>
+<body>
+	<div class="container">
+		<nav class="navbar navbar-expand-lg navbar-light bg-light py-4">
+			<div class="container-fluid">
+				<div class="d-flex flex-grow-1">
+					<a class="navbar-brand" href="{% url 'index' %}"><span class="mb0 h1">Hasker</span></a>
+					<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavAltMarkup" aria-controls="navbarNavAltMarkup" aria-expanded="false" aria-label="Toggle navigation">
+						<span class="navbar-toggler-icon"></span>
+					</button>
+				</div>
+				<div class="collapse navbar-collapse">
+					<form class="navbar-nav ms-auto col-sm-6" method="get" action="{% url 'search' %}">
+						<input class="form-control" name="q" type="search" placeholder="Search" aria-label="Search" value="{{q}}">
+						<input class="btn btn-outline-secondary" type="submit" value="Search">
+					</form>
+					<ul class="navbar-nav ms-auto flex-nowrap">
+						{% if user.is_authenticated %}
+						<li class="nav-item">
+							<a href="{% url 'profile' pk=user.pk %}" class="nav-link">{{ user.username }}</a>
+						</li>
+						<li class="nav-item">
+							<img src="{{ user.avatar.url }}" height="50" width="50">
+						</li>
+						<li class="nav-item">
+							<a href="{% url 'logout' %}" class="nav-link">Log Out</a>
+						</li>
+						{% else %}
+						<li class="nav-item">
+							<a href="{% url 'login' %}" class="nav-link">Log In</a>
+						</li>
+						<li class="nav-item">
+							<a href="{% url 'signup' %}" class="nav-link">Sign Up</a>
+						</li>
+						{% endif %}
+					</ul>
+				</div>
+			</div>
+		</nav>
+		<br>
+		<div class="container">
+			<div class="row">
+				<div class="col-9">
+					{% block content %}{% endblock %}
+				</div>
+				<div class="col-3" align="center">
+					<a href="{% url 'create' %}" class="btn btn-secondary">Ask!</a><br><br>
+					<h3>Trending &#x1f525;</h3><br>
+					<div class="container">
+						{% for question in trending %}
+							<div class="row">
+								<div class="col-3">
+									<span class="btn btn-primary">{{ question.rating }}</span>
+								</div>
+								<div class="col-9" align="left">
+									<p><a href="{% url 'question' pk=question.pk %}">{{ question.title }}</a></p>
+								</div>
+							</div>
+						{% endfor %}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<script src="{% static 'bootstrap/js/bootstrap.min.js' %}"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% load paginator %}
+{% load question %}
+
+{% block title %}Hasker::Search{% endblock %}
+
+{% block content %}
+<h2>
+	{% if not questions %}
+		No results found
+	{% else %}
+		Search results
+	{% endif %}
+</h2>
+<br><br>
+<div class="container">
+{% for question in questions %}
+	{% question_card question %}
+	<br>
+{% endfor %}
+</div>
+
+{% paginator questions q=q%}
+<br><br>
+
+{% endblock %}

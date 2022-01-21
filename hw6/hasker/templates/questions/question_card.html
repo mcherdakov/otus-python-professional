@@ -1,0 +1,36 @@
+{% load humanize %}
+
+<div class="row" style="border: 1px solid black; padding: 10px;">
+	<div class="col-2" align="center">
+		{{ question.rating }}<br>
+		Rating
+	</div>
+	<div class="col-2" align="center">
+		{{ question.answers_count }}<br>
+		Answers
+	</div>
+	<div class="col-4" align="center">
+		<div class="container">
+			<div class="row">
+				<h5><a href="{% url 'question' pk=question.pk %}">{{ question.title }}</a></h5>
+			</div>
+			<div class="row justify-content-center">
+				{% for tag in question.tags.all %}
+					<div class="col-4">
+						<a href="{% url 'search' %}?q=tag:{{ tag.name }}" class="btn btn-primary btn-sm">{{ tag.name }}</a>
+					</div>
+				{% endfor %}
+			</div>
+		</div>
+	</div>
+	<div class="col-1" align="center">
+		{{ question.author.username }}
+	</div>
+	<div class="col-1" align="center">
+		<img src="{{ question.author.avatar.url }}" height="30" width="30">
+	</div>
+	<div class="col-2" align="center">
+		Asked<br>
+		{{ question.date_created|naturaltime }}
+	</div>
+</div>

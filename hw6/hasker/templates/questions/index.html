@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% load paginator %}
+{% load question %}
+
+{% block title %}Hasker::Questions{% endblock %}
+
+{% block content %}
+<h2>
+	<span {% if ordering == "hot"%}style="color: grey;"{% endif %}>
+		<a style="text-decoration: none; color: inherit;" href="{% url 'index' %}?ordering=new">New Questions</a>
+	</span> |
+	<span {% if ordering == "new"%}style="color: grey;"{% endif %}>
+		<a style="text-decoration: none; color: inherit;" href="{% url 'index' %}?ordering=hot">Hot Questions</a>
+	</span>
+</h2>
+<br><br>
+<div class="container">
+{% for question in questions %}
+	{% question_card question %}
+	<br>
+{% endfor %}
+</div>
+
+{% if questions %}
+	{% paginator questions ordering=ordering%}
+{% else %}
+	<h3>No questions yet</h3>
+{% endif %}
+<br><br>
+
+{% endblock %}
