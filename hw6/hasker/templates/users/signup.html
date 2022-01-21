@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block title %}Hasker::SignUp{% endblock %}
+
+{% block content %}
+
+<h2>Sign Up</h2>
+{% if form.errors %}
+<ul style="color: red;">
+	{% for field in form %}
+		{% for error in field.errors %}
+			<li>{{ error|escape }}</li>
+		{% endfor %}
+	{% endfor %}
+</ul>
+{% endif %}
+
+<form method="post" action="{% url 'signup' %}" enctype="multipart/form-data">
+{% csrf_token %}
+{{ form.username.label_tag }}
+{{ form.username }}<br><br>
+{{ form.email.label_tag }}
+{{ form.email }}<br><br>
+{{ form.password1.label_tag }}
+{{ form.password1 }}<br><br>
+{{ form.password2.label_tag }}
+{{ form.password2 }}<br><br>
+{{ form.avatar.label_tag }}
+{{ form.avatar }}<br><br>
+<input class="btn btn-outline-secondary" type="submit" value="Sign Up">
+<input type="hidden" name="next" value="{{ next }}">
+</form>
+
+{% endblock %}

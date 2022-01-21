@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% load humanize %}
+{% load paginator %}
+
+{% block title %}Hasker::{{ question.title }}{% endblock %}
+
+{% block content %}
+
+<div class="container">
+	<div class="row">
+		<h2>{{ question.title }}</h2>
+	</div>
+	<div class="row">
+		<div class="col-1" align="center">
+			<form method="post" action="{% url 'vote' %}">
+				{% csrf_token %}
+				<input type="hidden" name="pk" value="{{ question.pk }}">
+				<input type="hidden" name="type" value="question">
+				<button type="submit" name="upvote" class="bi bi-caret-up{% if question.user_vote == 1 %}-fill{% endif %}"></button>
+				<h4>{{ question.rating }}</h4>
+				<button type="submit" name="downvote" class="bi bi-caret-down{% if question.user_vote == -1 %}-fill{% endif %}"></button>
+			</form>
+		</div>
+		<div class="col">
+			<p>{{ question.content }}</p>
+		</div>
+	</div>
+	<div class="row">
+		<div class="col-1"></div>
+		<div class="col-6">
+			<div class="container">
+				<div class="row">
+					{% for tag in question.tags.all %}
+						<div class="col-2">
+							<span class="btn btn-primary btn-sm">{{ tag.name }}</span>
+						</div>
+					{% endfor %}
+				</div>
+			</div>
+		</div>
+		<div class="col-1"></div>
+		<div class="col-2">{{ question.date_created|naturaltime }} </div>
+		<div class="col">
+			<img src="{{ question.author.avatar.url }}" height="30" width="30">
+			{{ question.author.username }}
+		</div>
+	</div>
+	<hr>
+	<h3>
+		{% if answers %}
+			Answers
+		{% else %}
+			No answers yet
+		{% endif %}
+	</h3>
+	<br>
+	{% for answer in answers %}
+		<div class="row">
+			<div class="col-1" align="center">
+
+			<form method="post" action="{% url 'vote' %}">
+				{% csrf_token %}
+				<input type="hidden" name="pk" value="{{ answer.pk }}">
+				<input type="hidden" name="type" value="answer">
+				<button type="submit" name="upvote" class="bi bi-caret-up{% if answer.user_vote == 1 %}-fill{% endif %}"></button>
+				<h4>{{ answer.rating }}</h4>
+				<button type="submit" name="downvote" class="bi bi-caret-down{% if answer.user_vote == -1 %}-fill{% endif %}"></button>
+			</form>
+			</div>
+			<div class="col">
+				<p>{{ answer.content }}</p>
+			</div>
+		</div>
+		<div class="row">
+			{% if user.is_authenticated and user == question.author %}
+				<div class="col-1" align="center">
+					<form method="post" action="{% url 'vote_best' %}">
+						{% csrf_token %}
+						<input type="hidden" name="pk" value="{{ answer.pk }}">
+						{% if not voted_best %}
+							<button type="submit" class="bi bi-star"></button>
+						{% elif answer.is_correct %}
+							<button type="submit" class="bi bi-star-fill"></button>
+						{% endif %}
+					</form>
+				</div>
+			{% endif %}
+			<div class="col-7"></div>
+			<div class="col-2">{{ answer.date_created|naturaltime }} </div>
+			<div class="col">
+				<img src="{{ answer.author.avatar.url }}" height="30" width="30">
+				{{ answer.author.username }}
+			</div>
+		</div>
+		<hr>
+	{% endfor %}
+	{% if answers %}
+	<div class="row">
+		<div class="col">
+			{% paginator answers %}
+		</div>
+	</div>
+	{% endif %}
+	{% if user.is_authenticated %}
+		<h3>Your answer</h3>
+		{% if form.errors %}
+			<ul style="color: red;">
+			{% for field in form %}
+				{% for error in field.errors %}
+					<li>{{ error|escape }}</li>
+				{% endfor %}
+			{% endfor %}
+			</ul>
+		{% endif %}
+		<form method="post" action="{% url "question" pk=question.pk %}">
+		{% csrf_token %}
+		<div class="row">
+			<div class="col">
+				{{ form.text }}
+			</div>
+		</div>
+		<br>
+		<div class="row">
+			<div class="col">
+				<input class="btn btn-outline-secondary" type="submit" value="Submit">
+			</div>
+		</div>
+		<input type="hidden" name="next" value="{{ next }}">
+		</form>
+	{% endif %}
+</div>
+
+{% endblock %}

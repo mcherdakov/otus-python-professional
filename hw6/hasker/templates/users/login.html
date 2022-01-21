@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}Hasker::LogIn{% endblock %}
+
+{% block content %}
+
+<h2>Log In</h2>
+{% if form.errors or form.non_field_errors %}
+<ul style="color: red;">
+	{% for field in form %}
+		{% for error in field.errors %}
+			<li>{{ error|escape }}</li>
+		{% endfor %}
+	{% endfor %}
+	{% for error in form.non_field_errors %}
+		<li>{{ error|escape }}</li>
+	{% endfor %}
+</ul>
+{% endif %}
+
+<form method="post" action="{% url 'login' %}">
+{% csrf_token %}
+{{ form.username.label_tag }}
+{{ form.username }}<br><br>
+{{ form.password.label_tag }}
+{{ form.password }}<br><br>
+<input class="btn btn-outline-secondary" type="submit" value="login">
+<input type="hidden" name="next" value="{{ next }}">
+</form>
+
+{% endblock %}

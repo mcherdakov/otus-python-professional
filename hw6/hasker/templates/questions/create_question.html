@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block title %}Hasker::Create{% endblock %}
+
+{% block content %}
+
+<h2>Ask question</h2>
+{% if form.errors or form.non_field_errors %}
+<ul style="color: red;">
+	{% for field in form %}
+		{% for error in field.errors %}
+			<li>{{ error|escape }}</li>
+		{% endfor %}
+	{% endfor %}
+	{% for error in form.non_field_errors %}
+		<li>{{ error|escape }}</li>
+	{% endfor %}
+</ul>
+{% endif %}
+
+<form method="post" action="{% url 'create' %}">
+{% csrf_token %}
+{{ form.title.label_tag }}
+{{ form.title }}<br><br>
+{{ form.text.label_tag }}
+{{ form.text }}<br><br>
+{{ form.tags.label_tag }}
+{{ form.tags }}<br><br>
+<input class="btn btn-outline-secondary" type="submit" value="Ask!">
+<input type="hidden" name="next" value="{{ next }}">
+</form>
+
+{% endblock %}
