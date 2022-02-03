@@ -12,11 +12,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
 
 const NormalErrRate = 0.01
+const NLoaders = 3
+const MemcTimeout = time.Second * 10
 
 type AppsInstalled struct {
 	devType string
@@ -24,26 +27,41 @@ type AppsInstalled struct {
 	proto   *UserApps
 }
 
-type Loader struct {
-	addrMap map[string]string
-	dry     bool
-	pattern string
-}
-
 type Stat struct {
 	ok  int
 	err int
 }
 
-func (loader *Loader) consumer(c chan *AppsInstalled, wg *sync.WaitGroup, name string, statIn chan *Stat) {
-	addr := loader.addrMap[name]
+func statCollector(recv chan *Stat, send chan *Stat) {
+	totalStat := Stat{}
+
+	for val := range recv {
+		totalStat.ok += val.ok
+		totalStat.err += val.err
+	}
+
+	send <- &totalStat
+}
+
+type MemcLoader struct {
+	addrMap map[string]string
+	dry     bool
+	cIn     chan *AppsInstalled
+	wg      *sync.WaitGroup
+	name    string
+	statIn  chan *Stat
+}
+
+func (ml *MemcLoader) run() {
+	addr := ml.addrMap[ml.name]
 	client := memcache.New(addr)
+	client.Timeout = MemcTimeout
 	stat := Stat{}
 
-	log.Printf("starting consumer for %s with addr %s", name, addr)
-	for appsInstalled := range c {
+	log.Printf("starting consumer for %s with addr %s", ml.name, addr)
+	for appsInstalled := range ml.cIn {
 		key := fmt.Sprintf("%s:%s", appsInstalled.devType, appsInstalled.devID)
-		if loader.dry {
+		if ml.dry {
 			log.Printf(
 				"%s - %s -> %s",
 				addr, key, strings.Replace(appsInstalled.proto.String(), "\n", " ", -1),
@@ -62,23 +80,18 @@ func (loader *Loader) consumer(c chan *AppsInstalled, wg *sync.WaitGroup, name s
 		stat.ok += 1
 	}
 
-	log.Printf("consumer for %s finished", name)
-	statIn <- &stat
-	wg.Done()
+	log.Printf("consumer for %s finished", ml.name)
+	ml.statIn <- &stat
+	ml.wg.Done()
 }
 
-func (loader *Loader) statCollector(recv chan *Stat, send chan *Stat) {
-	totalStat := Stat{}
-
-	for val := range recv {
-		totalStat.ok += val.ok
-		totalStat.err += val.err
-	}
-
-	send <- &totalStat
+type FileProcessor struct {
+	path        string
+	channelsMap map[string][]chan *AppsInstalled
+	statIn      chan *Stat
 }
 
-func (loader *Loader) parseLine(line string) (*AppsInstalled, error) {
+func (fp *FileProcessor) parseLine(line string) (*AppsInstalled, error) {
 	lineParts := strings.Split(line, "\t")
 	if linePartsLen := len(lineParts); linePartsLen < 5 {
 		return nil, fmt.Errorf("not enough line parts: %d < 5", linePartsLen)
@@ -118,10 +131,10 @@ func (loader *Loader) parseLine(line string) (*AppsInstalled, error) {
 	}, nil
 }
 
-func (loader *Loader) processFile(path string, channelsMap map[string]chan *AppsInstalled, statIn chan *Stat) error {
+func (fp *FileProcessor) process() error {
 	stat := Stat{}
 
-	file, err := os.Open(path)
+	file, err := os.Open(fp.path)
 	if err != nil {
 		return err
 	}
@@ -134,61 +147,97 @@ func (loader *Loader) processFile(path string, channelsMap map[string]chan *Apps
 	defer reader.Close()
 
 	scanner := bufio.NewScanner(reader)
+
+	chanNo := map[string]int{}
+	for name := range fp.channelsMap {
+		chanNo[name] = 0
+	}
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		appsInstalled, err := loader.parseLine(line)
+		appsInstalled, err := fp.parseLine(line)
 		if err != nil {
-			log.Printf("Error while parsing line in %s: %v", path, err)
+			log.Printf("Error while parsing line in %s: %v", fp.path, err)
 			stat.err += 1
 			continue
 		}
-		channelsMap[appsInstalled.devType] <- appsInstalled
+		dType := appsInstalled.devType
+		fp.channelsMap[dType][chanNo[dType]] <- appsInstalled
+		chanNo[dType] = (chanNo[dType] + 1) % NLoaders
 	}
 
-	statIn <- &stat
+	fp.statIn <- &stat
 	return nil
 }
 
-func (loader *Loader) closeChans(chans map[string]chan *AppsInstalled) {
-	for _, c := range chans {
-		close(c)
+func (fp *FileProcessor) dotRename() error {
+	dir, file := filepath.Split(fp.path)
+	return os.Rename(fp.path, filepath.Join(dir, "."+file))
+}
+
+func (ctrl *Controller) closeChans(chansMap map[string][]chan *AppsInstalled) {
+	for _, chans := range chansMap {
+		for _, c := range chans {
+			close(c)
+		}
 	}
 }
 
-func (loader *Loader) dotRename(path string) error {
-	dir, file := filepath.Split(path)
-	return os.Rename(path, filepath.Join(dir, "."+file))
+type Controller struct {
+	addrMap map[string]string
+	dry     bool
+	pattern string
 }
 
-func (loader *Loader) run() {
-	channelsMap := make(map[string]chan *AppsInstalled, len(loader.addrMap))
-	paths, err := filepath.Glob(loader.pattern)
+func (ctrl *Controller) run() {
+	channelsMap := make(map[string][]chan *AppsInstalled, len(ctrl.addrMap))
+	paths, err := filepath.Glob(ctrl.pattern)
 	if err != nil {
 		panic("failed to parse pattern")
 	}
 
 	for _, path := range paths {
-		for name := range loader.addrMap {
-			channelsMap[name] = make(chan *AppsInstalled)
+		for name := range ctrl.addrMap {
+			chans := make([]chan *AppsInstalled, NLoaders)
+			for i := range chans {
+				chans[i] = make(chan *AppsInstalled)
+			}
+			channelsMap[name] = chans
 		}
 		wg := sync.WaitGroup{}
 		statIn, statOut := make(chan *Stat), make(chan *Stat)
-		go loader.statCollector(statIn, statOut)
+		go statCollector(statIn, statOut)
 
 		log.Printf("processing %s", path)
 
-		for name, c := range channelsMap {
-			wg.Add(1)
-			go loader.consumer(c, &wg, name, statIn)
+		for name, chans := range channelsMap {
+			for _, c := range chans {
+				wg.Add(1)
+				memcLoader := MemcLoader{
+					addrMap: ctrl.addrMap,
+					dry:     ctrl.dry,
+					cIn:     c,
+					wg:      &wg,
+					name:    name,
+					statIn:  statIn,
+				}
+				go memcLoader.run()
+			}
 		}
 
-		err := loader.processFile(path, channelsMap, statIn)
-		loader.closeChans(channelsMap)
-		wg.Wait()
+		fileProcessor := FileProcessor{
+			path:        path,
+			channelsMap: channelsMap,
+			statIn:      statIn,
+		}
 
+		err := fileProcessor.process()
+
+		ctrl.closeChans(channelsMap)
+		wg.Wait()
 		close(statIn)
 
 		if err != nil {
@@ -199,7 +248,7 @@ func (loader *Loader) run() {
 		stat := <-statOut
 
 		if stat.ok == 0 {
-			err := loader.dotRename(path)
+			err := fileProcessor.dotRename()
 			if err != nil {
 				panic(err)
 			}
@@ -213,7 +262,7 @@ func (loader *Loader) run() {
 			log.Printf("high error rate (%f > %f), failed load", errRate, NormalErrRate)
 		}
 
-		err = loader.dotRename(path)
+		err = fileProcessor.dotRename()
 		if err != nil {
 			panic(err)
 		}
@@ -241,10 +290,10 @@ func main() {
 		*dry, *pattern, addrMap,
 	)
 
-	loader := &Loader{
+	ctrl := &Controller{
 		addrMap: addrMap,
 		dry:     *dry,
 		pattern: *pattern,
 	}
-	loader.run()
+	ctrl.run()
 }
