@@ -22,6 +22,8 @@ from pymemcache.exceptions import MemcacheUnexpectedCloseError
 NORMAL_ERR_RATE = 0.01
 RETRY_COUNT = 5
 TIMEOUT_SECONDS = 10
+MEMC_CLIENT_CONNECT_TIMEOUT_SECONDS = 20
+MEMC_BUFFER_SIZE = 10
 
 
 @dataclass
@@ -51,60 +53,76 @@ class Stat:
 
 class ConsumerThread(threading.Thread):
     def __init__(self, queue, stat: Stat, host, dry_run):
-        threading.Thread.__init__(self)
+        super().__init__()
         self.queue = queue
         self.host = host
         self.stat = stat
         if not dry_run:
-            self.client = Client(host.split(':'))
+            self.client = Client(host.split(':'), timeout=MEMC_CLIENT_CONNECT_TIMEOUT_SECONDS)
         else:
             self.client = None
 
-    def _insert_appsinstalled(self, appsinstalled: InsertAppsInstalledEvent):
+    def _insert_multi(self, values: dict[str, appsinstalled_pb2.UserApps]):
+        if self.client is None:
+            for key, ua in values.items():
+                logging.debug("%s - %s -> %s" % (self.host, key, str(ua).replace("\n", " ")))
+            self.stat.processed += len(values)
+            return True
+
+        unprocessed_values = {k: ua.SerializeToString() for k, ua in values.items()}
+        retry_count = 0
+        start_time = time.time()
+        while True:
+            try:
+                faulty = set(self.client.set_multi(unprocessed_values))
+                unprocessed_values = {k: v for k, v in unprocessed_values.items() if k in faulty}
+                if len(unprocessed_values) == 0:
+                    break
+                else:
+                    retry_count += 1
+                    logging.exception("Failed to write some_values to memc: %s, retrying...", faulty)
+            except MemcacheUnexpectedCloseError:
+                retry_count += 1
+            except Exception as e:
+                logging.exception("Cannot write to memc %s: %s" % (self.host, e))
+                break
+
+            if retry_count > RETRY_COUNT or time.time() - start_time > TIMEOUT_SECONDS:
+                logging.exception("Cannot write to memc %s: retries or timeout expired" % self.host)
+                break
+
+        self.stat.errors += len(unprocessed_values)
+        self.stat.processed += len(values) - len(unprocessed_values)
+
+    def _get_appsinstalled(self, appsinstalled: InsertAppsInstalledEvent) -> tuple[str, appsinstalled_pb2.UserApps]:
         ua = appsinstalled_pb2.UserApps()
         ua.lat = appsinstalled.lat
         ua.lon = appsinstalled.lon
         key = "%s:%s" % (appsinstalled.dev_type, appsinstalled.dev_id)
         ua.apps.extend(appsinstalled.apps)
-        packed = ua.SerializeToString()
-
-        retry_count = 0
-        start_time = time.time()
-        if self.client is None:
-            logging.debug("%s - %s -> %s" % (self.host, key, str(ua).replace("\n", " ")))
-            return True
-
-        while True:
-            try:
-                if self.client.set(key, packed):
-                    return True
-            except MemcacheUnexpectedCloseError:
-                retry_count += 1
-                if retry_count > RETRY_COUNT or time.time() - start_time > TIMEOUT_SECONDS:
-                    logging.exception("Cannot write to memc %s: retries or timeout expired" % self.host)
-                    return False
-
-            except Exception as e:
-                logging.exception("Cannot write to memc %s: %s" % (self.host, e))
-                return False
+        return key, ua
 
     def run(self):
+        buffer: dict[str, appsinstalled_pb2.UserApps] = dict()
         while True:
             event = self.queue.get()
             if isinstance(event, ExitEvent):
+                self._insert_multi(buffer)
                 return
 
-            ok = self._insert_appsinstalled(event)
-            if ok:
-                self.stat.processed += 1
-            else:
-                self.stat.errors += 1
+            key, val = self._get_appsinstalled(event)
+            buffer[key] = val
+
+            if len(buffer) > MEMC_BUFFER_SIZE:
+                self._insert_multi(buffer)
+                buffer = dict()
 
 
-class ProducerThread(threading.Thread):
-    def __init__(self, options):
-        threading.Thread.__init__(self)
-        self.options = options
+class FileProcessor:
+    def __init__(self, path, queues_map):
+        self.path = path
+        self.queues_map = queues_map
+        self.errors = 0
 
     def _parse_appsinstalled(self, line):
         line = line.decode('utf-8')
@@ -131,10 +149,50 @@ class ProducerThread(threading.Thread):
             apps=apps,
         )
 
-    def _dot_rename(self, path):
-        head, fn = os.path.split(path)
+    def _dot_rename(self):
+        head, fn = os.path.split(self.path)
         # atomic in most cases
-        os.rename(path, os.path.join(head, "." + fn))
+        os.rename(self.path, os.path.join(head, "." + fn))
+
+    def parse(self):
+        logging.info('Processing %s' % self.path)
+
+        with gzip.open(self.path) as fd:
+            for line in fd:
+                line = line.strip()
+                if not line:
+                    continue
+                appsinstalled = self._parse_appsinstalled(line)
+                if not appsinstalled:
+                    self.errors += 1
+                    continue
+
+                q = self.queues_map.get(appsinstalled.dev_type)
+                if not q:
+                    logging.error("Unknow device type: %s" % appsinstalled.dev_type)
+                    return
+
+                q.put(appsinstalled)
+
+    def collect_stat(self, stat: Stat):
+        stat.errors += self.errors
+        if not stat.processed:
+            self._dot_rename()
+            return
+
+        err_rate = float(stat.errors) / stat.processed
+        if err_rate < NORMAL_ERR_RATE:
+            logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
+        else:
+            logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
+
+        self._dot_rename()
+
+
+class ProducerThread(threading.Thread):
+    def __init__(self, options):
+        super().__init__()
+        self.options = options
 
     def _start_consumers(self, queues_map):
         consumers = []
@@ -153,7 +211,7 @@ class ProducerThread(threading.Thread):
 
         return consumers, stats
 
-    def _join_consumers(self, queues_map, consumers, stats):
+    def _join_consumers(self, queues_map, consumers, stats) -> Stat:
         stat = Stat()
 
         for q in queues_map.values():
@@ -172,41 +230,12 @@ class ProducerThread(threading.Thread):
             queues_map[t] = Queue()
 
         for fn in glob.glob(self.options.pattern):
-            errors = 0
             consumers, stats = self._start_consumers(queues_map)
+            fp = FileProcessor(fn, queues_map)
+            fp.parse()
 
-            logging.info('Processing %s' % fn)
-            fd = gzip.open(fn)
-            for line in fd:
-                line = line.strip()
-                if not line:
-                    continue
-                appsinstalled = self._parse_appsinstalled(line)
-                if not appsinstalled:
-                    errors += 1
-                    continue
-
-                q = queues_map.get(appsinstalled.dev_type)
-                if not q:
-                    logging.error("Unknow device type: %s" % appsinstalled.dev_type)
-                    return
-
-                q.put(appsinstalled)
-
-            stat: Stat = self._join_consumers(queues_map, consumers, stats)
-            stat.errors += errors
-            if not stat.processed:
-                fd.close()
-                self._dot_rename(fn)
-                continue
-
-            err_rate = float(stat.errors) / stat.processed
-            if err_rate < NORMAL_ERR_RATE:
-                logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
-            else:
-                logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
-            fd.close()
-            self._dot_rename(fn)
+            stat = self._join_consumers(queues_map, consumers, stats)
+            fp.collect_stat(stat)
 
 
 def main(options):
