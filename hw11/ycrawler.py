@@ -3,6 +3,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 import os
+from random import random
 from typing import Awaitable
 
 import aiofiles
@@ -13,8 +14,12 @@ import bs4 as bs
 URL = 'https://news.ycombinator.com'
 MAIN_PAGE_URL = f'{URL}/best'
 
-TIMEOUT_SECONDS = 10
+TIMEOUT_SECONDS = 10.
 POLL_TIME_SECONDS = 60
+RETRIES_COUNT = 3
+RETRY_INITIAL_INTERVAL_SECONDS = 2
+RETRY_BACKOFF = 2
+JITTER_MAX = 5
 
 logging.basicConfig()
 logger = logging.getLogger("ycrawler")
@@ -43,19 +48,27 @@ class Article:
 
 
 async def get_page(url: str, session: aiohttp.ClientSession) -> str:
-    try:
-        async with session.get(url, timeout=TIMEOUT_SECONDS) as resp:
-            try:
-                return await resp.text()
-            except Exception as e:
-                logger.error("Exception occured during url %s content decoding: %s", url, e)
-                return ""
-    except asyncio.TimeoutError:
-        logger.error("Timeout error for url %s", url)
-        return ""
-    except Exception as e:
-        logger.error("Cannot fetch %s: %s", url, e)
-        return ""
+    retries = 0
+    while True:
+
+        try:
+            async with session.get(url) as resp:
+                resp.raise_for_status()
+                try:
+                    return await resp.text()
+                except Exception as e:
+                    logger.error("Exception occured during url %s content decoding: %s", url, e)
+        except asyncio.TimeoutError:
+            logger.error("Timeout error for url %s", url)
+        except Exception as e:
+            logger.error("Cannot fetch %s: %s", url, e)
+
+        retries += 1
+        if retries >= RETRIES_COUNT:
+            logger.error("Too many retries for %s, skipping", url)
+            return ""
+
+        await asyncio.sleep(RETRY_INITIAL_INTERVAL_SECONDS * RETRY_BACKOFF ** (retries - 1) + random() * JITTER_MAX)
 
 
 async def crawl_comment_link(url: str, session: aiohttp.ClientSession) -> CommentLink:
@@ -198,7 +211,7 @@ async def crawl(path: str) -> None:
         logger.info('Starting new iteration')
         timer: Awaitable = asyncio.create_task(asyncio.sleep(POLL_TIME_SECONDS))
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(TIMEOUT_SECONDS)) as session:
             crawled_articles = await crawl_main_page(session, crawled_articles, save_queue)
 
         logger.info('Parsing finished, waiting next iteration')
