@@ -7,6 +7,7 @@ import time
 import glob
 import logging
 import threading
+import multiprocessing
 from queue import Queue
 from dataclasses import dataclass
 from optparse import OptionParser
@@ -189,10 +190,11 @@ class FileProcessor:
         self._dot_rename()
 
 
-class ProducerThread(threading.Thread):
-    def __init__(self, options):
+class Producer:
+    def __init__(self, options, file_name):
         super().__init__()
         self.options = options
+        self.file_name = file_name
 
     def _start_consumers(self, queues_map):
         consumers = []
@@ -229,19 +231,24 @@ class ProducerThread(threading.Thread):
         for t in ["idfa", "gaid", "adid", "dvid"]:
             queues_map[t] = Queue()
 
-        for fn in glob.glob(self.options.pattern):
-            consumers, stats = self._start_consumers(queues_map)
-            fp = FileProcessor(fn, queues_map)
-            fp.parse()
+        consumers, stats = self._start_consumers(queues_map)
+        fp = FileProcessor(self.file_name, queues_map)
+        fp.parse()
 
-            stat = self._join_consumers(queues_map, consumers, stats)
-            fp.collect_stat(stat)
+        stat = self._join_consumers(queues_map, consumers, stats)
+        fp.collect_stat(stat)
+
+
+def run_producer(producer: Producer):
+    producer.run()
 
 
 def main(options):
-    producer = ProducerThread(options)
-    producer.start()
-    producer.join()
+    with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
+        pool.map(
+            run_producer,
+            [Producer(options, file_name) for file_name in glob.glob(options.pattern)]
+        )
 
 
 def prototest():
